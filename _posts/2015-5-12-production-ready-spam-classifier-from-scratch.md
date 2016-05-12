@@ -7,6 +7,8 @@ I recently had the opportinuity to solve an issue with spammers for our products
 
 The final implementation is an asynchronous streaming classifier using [Apache Spark](http://spark.apache.org/) running on [Apache Hadoop](http://hadoop.apache.org/) using Yarn, with incomming messages being read from an [Apache Kafka](http://kafka.apache.org/) cluster. The pre-trained models are stored in HDFS and each Spark worker downloads the models to their local storage upon startup and loads them into memory. The classifier's predictions are sent to a queue for the different communities to consume and decide what they want to do with the information given.
 
+![architecture](/images/spam-hdfs.png)
+
 Most of the information in this post is theory and not too much concrete examples and code, since I'm not at liberty to share it most of it.
 
 The first part of this post is about how to manually label a large amount of unlabelled raw messages as either spam or ham to laster be used as training data for the actual classifier which is described in part two. The third part will deal with how to run the classifier in a production environment consisting of Kafka, Zookeeper, HDFS and Spark. Finally, the fouth part will talk about how to visualize and evaluate the streaming classifier.
