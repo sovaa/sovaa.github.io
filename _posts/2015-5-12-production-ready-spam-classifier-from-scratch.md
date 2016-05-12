@@ -1,9 +1,17 @@
 ---
 layout: post
-title: Spam Classifier Part 1 - Collecting training data
+title: Production Ready Spam Classifier From Scratch
 ---
 
-This is a first post in a four-part series on the theory behind a near real-time streaming text spam classifier for a messaging system. The first part is about how to manually label a large amount of unlabelled data as either spam or ham to be used as training data for the actual classifier described in part two of this series. The third part will deal with how to run the classifier in a production environment consisting of Kafka, Zookeeper, HDFS and Spark. Finally, the fouth part will talk about how to visualize and evaluate the streaming classifier.
+I recently had the opportinuity to solve an issue with spammers for our products. The products community sites with the ability for users to send messages to each others, and quite many of these messages are spam users creating accounts and sending bait messages to other users to make them visit certain sites or to get their email addresses. The previous solution has been a simple list of keywords that when used would automatically block the user. This solution has many drawbacks, since spammers can easily circumvent a keyword 'funsite.com' with 'f u n s i t e . c o m'. This has caused the list of keywords to grow and grow, year after year, and currently contains over a thousand of these keywords, and whenever a user sends a message, a check is made against this table, which is neither scalable nor accurate, so we needed a better solution.
+
+The final implementation is an asynchronous streaming classifier using Spark running on hadoop, with incomming messages being read from a Apache Kafka cluster. The pre-trained models are stored in HDFS and each Spark worker downloads the models to their local storage upon startup and loads them into memory. The classifier's predictions are sent to a queue for the different communities to consume and decide what they want to do with the information given.
+
+Most of the information in this post is theory and not too much concrete examples and code, since I'm not at liberty to share it.
+
+The first part of this post is about how to manually label a large amount of unlabelled raw messages as either spam or ham to laster be used as training data for the actual classifier which is described in part two. The third part will deal with how to run the classifier in a production environment consisting of Kafka, Zookeeper, HDFS and Spark. Finally, the fouth part will talk about how to visualize and evaluate the streaming classifier.
+
+## Labelling training data
 
 I will assume you already have a database dump of actual messages sent in your production environment.
 
@@ -120,3 +128,14 @@ for index, (y_true, y_guess) in enumerate(zip(y_valid, y_pred)):
 
 Update the training data based on what the classifier finds. By splitting the data randomly to get both training data and validation data, you'd have to run the classifier a couple of times to find the miss-labelled data in the different folds. If you validate on the completed set you might not find all messages anyway since the classifier will learn from the training set and might not find the wrongly classified messages on that set but only on the validation set.
 
+## The classifier
+
+TODO
+
+## Running in a production environment
+
+TODO
+
+## Visualization
+
+TODO
