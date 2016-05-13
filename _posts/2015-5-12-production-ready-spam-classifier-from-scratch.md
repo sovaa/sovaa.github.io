@@ -570,7 +570,7 @@ def download_models_from_hdfs(config):
     shutil.rmtree(temp_hdfs_path)
 ```
 
-An upper threshold can be configured for when to notify the communities. In our case we've set it to 70 %, so any message that has a probability of being spam that is lower than 70 % will be dropped (i.e. assumed to not be spam). Basically this is similar to the idea of having a [http://www.jmlr.org/papers/volume9/bartlett08a/bartlett08a.pdf](reject option) in a classifier. In our case we save messages to a database that fall below 70 % but above 50 %, which is rendered in the web interface to the classifier, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this post).
+An upper threshold can be configured for when to notify the communities. In our case we've set it to 70 %, so any message that has a probability of being spam that is lower than 70 % will be dropped (i.e. assumed to not be spam). Basically this is similar to the idea of having a [reject option](http://www.jmlr.org/papers/volume9/bartlett08a/bartlett08a.pdf) in a classifier. In our case we save messages to a database that fall below 70 % but above 50 %, which is rendered in the web interface to the classifier, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this post).
 
 The `valid_json` method only checks whether or not the incoming message is valid json or not and contains the expected attributes.
 
