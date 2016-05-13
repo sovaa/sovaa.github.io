@@ -137,9 +137,9 @@ Update the training data based on what the classifier finds. By splitting the da
 
 ### Offline training
 
-The classifier is an ensemble of multiple classifiers, who's output is fed to a single "blender" algorithm (logistic regression) to form the final prediction. Scikit-learn is heavily used, as well as TensowFlow and XGBoost.
+The classifier is an [ensemble of multiple classifiers](https://en.wikipedia.org/wiki/Ensemble_learning), who's output is fed to a single [blender](http://www.chioka.in/stacking-blending-and-stacked-generalization/) (also called stacking in some literature) algorithm (logistic regression) to form the final prediction. [Scikit-learn](http://scikit-learn.org/stable/) is heavily used, as well as [TensorFlow](https://www.tensorflow.org/) and [XGBoost](https://github.com/dmlc/xgboost).
 
-First we need to preprocess the data; here's we're using a short pipeline of a stemmer, TF-IDF vectorizer and a dense transformer (since some of the classifiers don't work on sparse data):
+First we need to preprocess the data; here's we're using a short pipeline consisting of a [stemmer](https://en.wikipedia.org/wiki/Stemming), [TF-IDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) [vectorizer](https://en.wikipedia.org/wiki/Vector_space_model) and a dense transformer (since some of the classifiers don't work on [sparse data](https://en.wikipedia.org/wiki/Sparse_matrix)):
 
 ```python
 transformers = {
@@ -176,7 +176,9 @@ class DenseTransformer(TransformerMixin):
         return self
 ```
 
-For the classifiers, the following 8 classifiers were chosen (the parameters have been chosen by cross-validation using sk-learns GridSearchCV):
+Vectorization (or more specifically a Vector Space Model) is a technique for representing text as numerical vectors, which is useful for us since classification algorithms mostly operate on numerical data. TF-IDF stands for Term Frequency, Inverse Document Frequency, which is a way to find relevant words which are characteristic to the document at hand relative to the complete corpus. For an introduction on how VSM and TF-IDF works I would refer to Christian Perone's introduction, both [part 1](http://blog.christianperone.com/2011/09/machine-learning-text-feature-extraction-tf-idf-part-i/) and [part 2](http://blog.christianperone.com/2011/09/machine-learning-text-feature-extraction-tf-idf-part-ii/).
+
+For the classifiers, the following 8 classifiers were chosen for the first layer (the parameters have been chosen by [cross-validation](https://en.wikipedia.org/wiki/Cross-validation_%28statistics%29) using scikit-learn's GridSearchCV):
 
 ```python
 classifiers = {
@@ -191,7 +193,7 @@ classifiers = {
 }
 ```
 
-The final algorithm is the blender (which will predict the true class from what the classifiers output):
+The second layer of the classifier is the blender, which will predict the true class from what the classifiers output:
 
 ```python
 blenders = {
@@ -199,9 +201,11 @@ blenders = {
 }
 ```
 
-Here we could add multiple blenders and use majority voting as the third level, though after testing this did not increase the accuracy enough to justify the added complexity.
+Here we could add multiple blenders and use majority voting as the third layer, though after testing this did not increase the accuracy enough to justify the added complexity. Visually it looks like this:
 
-Now we can start to train the classifiers (if you have enough memory you could train multiple, or all, in parallell by increasing the number of trainin threads):
+![spam-levels](/images/spam-levels.png)
+
+Now we can start to train the classifiers (if you have enough memory you could train multiple, or all, in parallell by increasing the number of training threads):
 
 ```python
 @staticmethod
@@ -280,10 +284,7 @@ def train_classifier(data=None, validate=False):
     Classifier.set_transformers()
     Classifier.set_clfs()
     Classifier.set_bclfs()
-    Classifier.train_model(
-            data=data,
-            validate=validate,
-            split_percentage=Classifier.train_percentage)
+    Classifier.train_model(data=data, validate=validate)
     Classifier.trained = True
 
 @staticmethod
@@ -312,13 +313,13 @@ def set_transformers():
     ])
 ```
 
-The reason for setting `clfs`, `bclfs` and `pipeline` instead of just using `classifiers`, `blenders` and `transformers` directly is because when the classifier is running on Spark later, we want to replace these definitions with the pre-trained models that the trainer has saved to HDFS.
+The reason for setting `clfs`, `bclfs` and `pipeline` instead of just using `classifiers`, `blenders` and `transformers` directly is because when the classifier is running on Spark later, we want to replace these definitions with the pre-trained models that the trainer has saved to HDFS (more on this in the next section).
 
-The `data` variable in the `train_classifier` method is simple a pandas DataFrame:
+The `data` variable in the `train_classifier` method is simple a [pandas](http://pandas.pydata.org/) DataFrame:
 
 ```python
 def load_data():
-    table = config.get(ConfigKeys.JDBC_TABLE, 'training_small')
+    table = config.get(ConfigKeys.JDBC_TABLE, 'training')
     cursor.execute("select class, message from %s" % table)
     _data = cursor.fetchall()
 
@@ -342,72 +343,64 @@ def train_model(data):
     X = data[data.columns[1]]
     y = np.array(y).astype(int)
 
-    # split the data into a train and validation set
     X_train, X_valid, y_train, y_valid = train_test_split(X, y)
 
-    # fit the classifiers using the method show above
-    Classifier.fit(X_train, y_train)
+    if not Classifier.trained:
+        Classifier.fit_classifiers(X_train, y_train)
 
-    predictions = Classifier.validate(X_train, y_train)
-    Classifier.fit_blenders(y_train, predictions)
+    X_blend = Classifier.validate_classifiers(Classifier.clfs, X_train, y_train)
+    Classifier.fit_blenders(X_blend, y_train)
 
-    predictions_valid = Classifier.validate(X_valid, y_valid)
-    Classifier.validate_blenders(predictions_valid, y_valid)
+    X_blend = Classifier.validate_classifiers(Classifier.clfs, X_valid, y_valid)
+    Classifier.validate_blenders(Classifier.bclfs, X_blend, y_valid)
 ```
 
-Here simply use the training set again for prediction, this output predictions is what's used as training data for the blenders. If you have enough data it would be better to split the data into three seperate sets; use the first set to fit the classifiers, use the second set to predict using the classifiers, and use those predictions as training data for the blenders, and finally using the third set to validate the blenders. In practice though did didn't have a big impact on the accuracy for us by doing it this way, it was still higher than not using a blender, and 50k samples were a bit too small of a dataset do be able to split into three sets. In the future when we have more labelled training data we would ideally switch over to use three sets during training.
+Here we simply use the training set again for prediction, this output predictions is what's used as training data for the blenders. If you have enough data it would be better to split the data into three seperate sets; use the first set to fit the classifiers, use the second set to predict using the classifiers, and use those predictions as training data for the blenders, and finally using the third set to validate the blenders. In practice though did didn't have a big impact on the accuracy for us by doing it this way, it was still higher than not using a blender, and 50k samples were a bit too small of a dataset do be able to split into three sets. In the future when we have more labelled training data we would ideally switch over to use three sets during training.
+
+A quick visualization of this three-way split: we would first train the classifier on the training split:
+
+![training-split](/images/spam-split-1.png)
+
+Then we validate the classifier using the second split, the 'blending' split, and use the predictions from the classifier as training data to the blender:
+
+![blend-split](/images/spam-split-2.png)
+
+Finally, we use the validation set to (again) validate the classifier and using the classifier's output as input to validate the blender:
+
+![validation-split](/images/spam-split-3.png)
+
+This way the blender gets to be trained on real training data that the classifier has not seen before. This makes the classifier train on one split and validate on two splits, though the output of the second split is only used as training data for the blender, then finally we can validate both the classifier's performance and the blender's performance on the third split, the validation data, which neither the classifier nor the blender has seen before.
 
 Below is the `validate` and `validate_blenders` methods, which simply loops over the classifiers and aggregates the output:
 
 ```python
 @staticmethod
-def validate(X_valid, y_valid):
-    X_valid = Classifier.pipeline.transform(X_valid)
-    y_pred = np.zeros(y_valid.shape)
+def validate_classifiers(classifiers, X, y):
+    return Classifier.validate(classifiers, Classifier.pipeline.transform(X), y)
 
-    tmp_preds = dict()
+@staticmethod
+def validate_blenders(classifiers, X, y):
+    return Classifier.validate(classifiers, to_blend_x(X), y)
 
-    for index, (name, clf) in enumerate(Classifier.clfs):
-        # not all classifiers has `predict_proba`
-        if hasattr(clf, 'predict_proba'):
-            preds = np.array(clf.predict_proba(
-                    pd.DataFrame(X_valid)))[:, 1]
+@staticmethod
+def validate(classifiers, X, y, X_copy=None):
+    def validate_classifier(_classifier, _name, X_valid, y_valid):
+        if hasattr(classifier, 'predict_proba'):
+            y_hat = _classifier.predict_proba(X_valid)[:, 1]
         else:
-            preds = clf.predict(pd.DataFrame(X_valid))
+            y_hat = _classifier.predict(X_valid)
 
-        tmp_preds[index] = preds
-        # print accuracy and confusion matrix
-        score(preds, y_valid, name=name)
+        score(y_hat, y_valid, name=_name)
+        return y_hat
 
-    for index, pred in tmp_preds.items():
-        for i, p in enumerate(pred):
-            y_pred[i] += p
+    y_hats = dict()
+    for index, (name, classifier) in enumerate(classifiers):
+        y_hats[index] = validate_classifier(classifier, name, X, y)
 
-    # also score the ensemble, simply by averaging over 
-    # all individual predictions
-    y_pred /= len(Classifier.clfs)
-    score(y_pred, y_valid, name='ensemble')
+    y_hat_ensemble = score_ensemble(y_hats, y, len(classifiers))
+    print_validation(y, y_hat_ensemble, X_copy)
 
-    return tmp_preds
-
-@staticmethod
-def validate_blenders(predictions_valid, y_valid):
-    X_blend = to_blend_x(predictions_valid)
-
-    tmp_preds = []
-    for i, (name, blend_clf) in enumerate(Classifier.bclfs):
-        tmp_preds.append(Classifier.validate_blender(
-                blend_clf, name, X_blend, y_valid))
-
-@staticmethod
-def validate_blender(blend_clf, name, X_blend_valid, y_valid):
-    if hasattr(blend_clf, 'predict_proba'):
-        y_blend_predict = blend_clf.predict_proba(X_blend_valid)[:, 1]
-    else:
-        y_blend_predict = blend_clf.predict(X_blend_valid)
-
-    score(y_blend_predict, y_valid, name=name)
-    return y_blend_predict
+    return y_hats
 ```
 
 I won't cover the `score` method, the only thing it does is printing some metrics.
@@ -419,7 +412,7 @@ data = load_data()
 Classifier.train_classifier(data)
 ```
 
-When you've done cross-validation and you're happy with the accuracy you get, then instead of splitting the data into train and validation sets, retrain the whole model on the complete dataset.
+When you're done with the cross-validation and you're happy with the accuracy you get, then instead of splitting the data into train and validation sets, retrain the whole model on one split of the training data, using the second split as training data for the blenders (by first using it as validation data for the classifiers).
 
 After training we want to actually store these trained models on HDFS so our Spark workers can download and use them across the cluster:
 
@@ -436,7 +429,7 @@ hadoop.delete(hdfs_path, recursive=True)
 hadoop.upload(hdfs_path, local_path)
 ```
 
-Above, `config` a dictionary of configuration values read from Zookeeper, the distributed configuration system, since all workers need acess to the config values it makes sense to get them from somewhere else so we don't happen to have conflicting configurations spread out across the cluster. One way of getting these configuration values from Zookeeper is the following (env is a dictionary containing environment variables, either loaded from the yaml file or from variables set on the command line):
+Above, `config` is a dictionary of configuration values read from Zookeeper, the distributed configuration system, since all workers need acess to the config values it makes sense to get them from somewhere else so we don't happen to have conflicting configurations spread out across the cluster. One way of getting these configuration values from Zookeeper is the following (env is a dictionary containing environment variables, either loaded from the yaml file or from variables set on the command line):
 
 ```python
 def load_config(env):
@@ -491,7 +484,7 @@ Now that we have the pre-trained models stored in the distributed filesystem we 
 
 ### Streaming classification
 
-Below is the code that starts the task. We're using a window length of 10 seconds, 5 consumers and 2 kafka partitions, repartitioned to 10 since we have 10 Spark workers in the cluster for spam classification:
+Below is the code that starts the task. We're using a window length of 10 seconds, 5 consumers and 2 kafka partitions, repartitioned to 10 Spark partitions since we have 10 Spark workers in the cluster for spam classification:
 
 ```python
 from pyspark import SparkContext
@@ -538,6 +531,8 @@ def handle_partition(env, config, partition):
         return
 
     reject_max = config.get(ConfigKeys.REJECT_PROB_MAX)
+    reject_min = config.get(ConfigKeys.REJECT_PROB_MIN)
+
     for k, update in updates:
         update = valid_json(update)
         if update is None:
@@ -548,6 +543,8 @@ def handle_partition(env, config, partition):
 
         if probability_is_spam > reject_max:
             notify_community(probability_is_spam, message_id)
+        elif reject_min < probability_is_spam < reject_max:
+            handle_rejected(probability_is_spam, message_id)
 
 def download_models_from_hdfs(config):
     """
@@ -573,7 +570,7 @@ def download_models_from_hdfs(config):
     shutil.rmtree(temp_hdfs_path)
 ```
 
-A configurable upper threshold can be configured for when to notify the communities. In our case we've set it to 70 %, so any message that has a probability of being spam that is lower than 70 % will be dropped (i.e. assumed to not be spam). Basically this similar to having a 'reject option' in a classifier. In our case we save messages to a database that fall below this 70 % but above 50 %, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this port).
+An upper threshold can be configured for when to notify the communities. In our case we've set it to 70 %, so any message that has a probability of being spam that is lower than 70 % will be dropped (i.e. assumed to not be spam). Basically this is similar to the idea of having a [http://www.jmlr.org/papers/volume9/bartlett08a/bartlett08a.pdf](reject option) in a classifier. In our case we save messages to a database that fall below 70 % but above 50 %, which is rendered in the web interface to the classifier, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this post).
 
 The `valid_json` method only checks whether or not the incoming message is valid json or not and contains the expected attributes.
 
@@ -581,7 +578,24 @@ Now the classifier will handle all messages posted to the Kafka cluster and noti
 
 ## Running in a production environment
 
-TODO
+When the clusters have been set up (zookeeper, kafka, hdfs, yarn), and the models have been trained and uploaded HDFS, we can run our Spark Streaming task with the help of YARN using a script somewhat similar to this:
+
+```bash
+VERSION=1.6.1
+SPARK_HOME=/opt/spark/
+
+$SPARK_HOME/bin/spark-submit --packages org.apache.spark:spark-streaming-kafka_2.10:$VERSION \
+    --py-files spam/environment.py,spam/classify.py,spam/spam.py,spam/xgboost_classifier.py,spam/utils.py \
+    --master yarn spam/__init__.py -l DEBUG
+```
+
+Since we're using Kafka as an input source to Spark, we need to include the Kafka jar when submitting our Spark task.
+
+Running this on our development environment and supplying the Kafka cluster in the development environment with a steady stream of test messages we can see the Spark metrics and resource allocation below (in our development environment both the Kafka and Hadoop clusters are virtual machines on the same physical node, the load visualization below is from that physical machine):
+
+![spark-metrics](/images/spam-streaming-graphs.png)
+
+![node-load](/images/spam-load.png)
 
 ## Visualization
 
