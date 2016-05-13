@@ -36,7 +36,7 @@ We're using the InnoDB engine above instead of the MyISAM engine because we need
 
 In our case we have a way for users to report messages as spam, so we have a seperate dump for non-reported messages and reported messages. Since many users might have reported messages as spam that are actually not spam, this is of course not fool-proof, though it gives us a starting point; since most messages are not spam, if we'd just dump say 50k random messages there might be an unproportional amount of non-spam compared to spam, so we're dumping roughly 25k reported messages and 25k random messages.
 
-You could of course use more messages for the training data, though using around 50k messages as training data gave us a resonable accuracy of 99.98 % after some tweaking. Training on this amount of data and doing cross-validation consumed roughly 30 GB of memory, so if you have both the time and memory you could increase the size of the training data, at the expense of more time spending trying to correctly label everything.
+You could of course use more messages for the training data, though using around 50k messages as training data gave us a resonable accuracy of 99.98% after some tweaking. Training on this amount of data and doing cross-validation consumed roughly 30 GB of memory, so if you have both the time and memory you could increase the size of the training data, at the expense of more time spending trying to correctly label everything.
 
 Initially we set the class of all messages (included the reported ones) to 0 (non-spam, whereas 1 would indicate spam).
 
@@ -71,7 +71,7 @@ where
 
 Notice the space at the end of 'your-domain.de '; this is because our messages are in german, and surprisingly often users don't use a space after a full-stop, meaning the `like` query could potentially find sentences which are not actually links, since 'de' is a common prefix for many german words.
 
-Many of our spam messages contains obfuscated linkes, such as "F˔ u˔ n˔ s˔ i˔ t˔ e. c˔ o˔ m" and "F˖u˖n˖s˖i˖t˖e . n˖e˖t!", to try to circumvent simple keyword matching. Funsite is one domain that often shows up in these ways in our messages (not the real domain, funsite is used here to not disclose the actual spam domain used). Using regular expressions we can find quite a lot of these messages easily:
+Many of our spam messages contains obfuscated linkes, such as `F˔ u˔ n˔ s˔ i˔ t˔ e. c˔ o˔ m` and `F˖u˖n˖s˖i˖t˖e . n˖e˖t!`, to try to circumvent simple keyword matching. Funsite is one domain that often shows up in these ways in our messages (not the real domain, funsite is used here to not disclose the actual spam domain used). Using regular expressions we can find quite a lot of these messages easily:
 
 ```sql
 update training set class = 1 
@@ -113,7 +113,7 @@ where
     message regexp '[0-9]{2}.{0,5}[cC].{0,3}[oO0].{0,3}[mM]';
 ```
 
-Lastly, we can run the classifier on this and print all false positives. If you have most of your data labelled correctly, the classifier will most likely classify the messages you've missed to manually label as spam, while in the dataset they're still labelled as ham, giving you a list of false positives, of which most messages are likely to be messages you actually want to label as spam. For example during your evaluation phase:
+Lastly, we can run the classifier on this and print all false positives. If you have most of your data labelled correctly, the classifier will most likely classify the messages you've missed to manually label as spam, while in the dataset they're still labelled as ham, giving you a list of false positives, of which most messages are likely to be messages you actually want to label as spam. For example during the evaluation phase:
 
 ```python
 # y_valid is the labels from the training set, y_pred is what the 
@@ -121,14 +121,11 @@ Lastly, we can run the classifier on this and print all false positives. If you 
 for index, (y_true, y_guess) in enumerate(zip(y_valid, y_pred)):
     # if the classifier is unsure likely it's not our spam messages
     if y_true == 0 and y_guess >= 0.7:
-        print('[guess: %s, true: %s]' % (y_guess, y_true))
-
         # printing the messages from a copy of the input matrix since 
         # the one used for training contains the transformed messages 
         # which are not human-readable
+        print('[guess: %s, true: %s]' % (y_guess, y_true))
         print(X_valid_original[index].encode('utf-8').strip())
-
-        print('==============\n')
 ```
 
 Update the training data based on what the classifier finds. By splitting the data randomly to get both training data and validation data, you'd have to run the classifier a couple of times to find the miss-labelled data in the different folds. If you validate on the completed set you might not find all messages anyway since the classifier will learn from the training set and might not find the wrongly classified messages on that set but only on the validation set.
@@ -139,7 +136,7 @@ Update the training data based on what the classifier finds. By splitting the da
 
 The classifier is an [ensemble of multiple classifiers](https://en.wikipedia.org/wiki/Ensemble_learning), who's output is fed to a single [blender](http://www.chioka.in/stacking-blending-and-stacked-generalization/) (also called stacking in some literature) algorithm (logistic regression) to form the final prediction. [Scikit-learn](http://scikit-learn.org/stable/) is heavily used, as well as [TensorFlow](https://www.tensorflow.org/) and [XGBoost](https://github.com/dmlc/xgboost).
 
-First we need to preprocess the data; here's we're using a short pipeline consisting of a [stemmer](https://en.wikipedia.org/wiki/Stemming), [TF-IDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) [vectorizer](https://en.wikipedia.org/wiki/Vector_space_model) and a dense transformer (since some of the classifiers don't work on [sparse data](https://en.wikipedia.org/wiki/Sparse_matrix)):
+First we need to preprocess the data; here we're using a short pipeline consisting of a [stemmer](https://en.wikipedia.org/wiki/Stemming), [TF-IDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) [vectorizer](https://en.wikipedia.org/wiki/Vector_space_model) and a dense transformer (since some of the classifiers don't work on [sparse data](https://en.wikipedia.org/wiki/Sparse_matrix)):
 
 ```python
 transformers = {
@@ -570,9 +567,13 @@ def download_models_from_hdfs(config):
     shutil.rmtree(temp_hdfs_path)
 ```
 
-An upper threshold can be configured for when to notify the communities. In our case we've set it to 70 %, so any message that has a probability of being spam that is lower than 70 % will be dropped (i.e. assumed to not be spam). Basically this is similar to the idea of having a [reject option](http://www.jmlr.org/papers/volume9/bartlett08a/bartlett08a.pdf) in a classifier. In our case we save messages to a database that fall below 70 % but above 50 %, which is rendered in the web interface to the classifier, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this post).
+{:.note}
+> <h4>Reject Option</h4>
+> An upper threshold can be configured for when to notify the communities. In our case we've set it to 70%, so any message that has a probability of being spam that is lower than 70% will be dropped (i.e. assumed to not be spam). Basically this is similar to the idea of having a [reject option](http://www.jmlr.org/papers/volume9/bartlett08a/bartlett08a.pdf) in a classifier. A reject option is when a binary classifier classifier something close to 50%, meaning it's completely unsure of which class the input belongs to, so we might as well flip a coin. Instead of flipping a coin the classifier then rejects the input, either drops it completely or let some human look at it and decide and based on this decision add the input to the training data. All of a sudden we have basic reinforcement learning.
+> 
+> In our case we save these rejected messages to a database (if the output is between 70% and 50%), which is rendered in the web interface to the classifier, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this post). We have a quite high upper threshold for the reject option, since in spam classification you definitely don't want false positives (classifying a message as spam when it in fact wasn't), it's better for the users to sometimes let a real spam message through than to sometimes penalize users sending legitimate messages that happened to be classified as spam by the system. For recommendations this upper reject threshold could be much lower, since recommending something a users _might_ like isn't that bad.
 
-The `valid_json` method only checks whether or not the incoming message is valid json or not and contains the expected attributes.
+The `valid_json` method above only checks whether or not the incoming message is valid json or not and contains the expected attributes.
 
 Now the classifier will handle all messages posted to the Kafka cluster and notify the communities whenever it finds that a message is spam.
 
