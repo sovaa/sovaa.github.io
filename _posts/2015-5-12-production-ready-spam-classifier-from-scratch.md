@@ -3,24 +3,21 @@ layout: post
 title: Production Ready Spam Classifier From Scratch
 ---
 
-I recently had the opportinuity to solve an issue with spammers for our products. The products community sites with the ability for users to send messages to each others, and quite many of these messages are spam users creating accounts and sending bait messages to other users to make them visit certain sites or to get their email addresses. The previous solution has been a simple list of keywords that when used would automatically block the user. This solution has many drawbacks, since spammers can easily circumvent a keyword 'funsite.com' with 'f u n s i t e . c o m'. This has caused the list of keywords to grow and grow, year after year, and currently contains over a thousand of these keywords, and whenever a user sends a message, a check is made against this table, which is neither scalable nor accurate, so we needed a better solution.
+I recently had the opportunity to solve an issue with spammers for our products. The products are community sites where users can send messages to each other. Many of these messages are from spammers, trying to make others visit websites or to get their emails. Before, a list of keywords was maintained. If a message contains one of these keywords, that user would automatically be blocked. This solution has many drawbacks, since spammers can easily circumvent e.g. 'funsite.com' with 'f u n s i t e . c o m'. This has caused the list of keywords to grow and grow, year after year. Currently it contains over a thousand of these keywords. When a user sends a message, it is checked against this table, which is neither scalable nor accurate. We needed a better solution.
 
-The final implementation is an asynchronous streaming classifier using [Apache Spark](http://spark.apache.org/) running on [Apache Hadoop](http://hadoop.apache.org/) using Yarn, with incomming messages being read from an [Apache Kafka](http://kafka.apache.org/) cluster. The pre-trained models are stored in HDFS and each Spark worker downloads the models to their local storage upon startup and loads them into memory. The classifier's predictions are sent to a queue for the different communities to consume and decide what they want to do with the information given.
+The new solution is an asynchronous streaming classifier using [Apache Spark](http://spark.apache.org/) running on [Apache Hadoop](http://hadoop.apache.org/) using Yarn. Incoming messages are being read from an [Apache Kafka](http://kafka.apache.org/) cluster. The models are stored in HDFS, and each Spark node downloads these models upon boot and loads them in memory for each worker on that node. The classifier's predictions are sent to a queue for communities to consume from. Then the communities can decide what they want to do with the information given.
 
 ![architecture](/images/spam-hdfs.png)
 
-Most of the information in this post is theory and not too much concrete examples and code, since I'm not at liberty to share everything.
+A lot of information in this post is theory, since I'm not at liberty to share everything.
 
-The first part of this post is about how to manually label a large amount of unlabelled raw messages as either spam or ham to later be used as training data for the actual classifier which is described in part two. The third part will deal with how to run the classifier in a production environment consisting of Kafka, Zookeeper, HDFS and Spark. Finally, the fouth part will talk about how to visualize and evaluate the streaming classifier.
+The first part of this post talks about how to manually label a large amount of raw messages as either spam or ham. This labelled data is then used as training data for the classifier which is described in part two. The third part will deal with how to run the classifier in a production environment consisting of Kafka, Zookeeper, HDFS and Spark. Finally, the fourth part will talk about how to visualize and evaluate the classifier.
 
 * This line is a placeholder to generate the table of contents
 {:toc}
 
 ## Labelling training data
-
-I will assume you already have a database dump of actual messages sent in your production environment.
-
-For our purposes, the training data will reside in MySQL so we can more easily manage and improve the training data over time through a web interface. The table structure I'll be using looks like the following:
+The training data will be stored in MySQL so we can easily improve the data over time through an interface. The table structure I'll be using looks like the following:
 
 ```sql
 CREATE TABLE `training` (
@@ -32,9 +29,9 @@ CREATE TABLE `training` (
 ) ENGINE=InnoDB AUTO_INCREMENT=50894 DEFAULT CHARSET=utf8 COLLATE=utf8_bin
 ```
 
-We're using the InnoDB engine above instead of the MyISAM engine because we need the fulltext key on the `message` column to match some approximate string searches later to find likely spam messages. When you're confident that your training data is more or less correctly labelled you could switch the engine if need be.
+We're using the InnoDB engine instead of MyISAM because we need the `fulltext key` on the `message` column. This way we can match approximate string searches later to find likely spam messages. When your training data is mostly labelled correctly you can switch engine if needed.
 
-In our case we have a way for users to report messages as spam, so we have a seperate dump for non-reported messages and reported messages. Since many users might have reported messages as spam that are actually not spam, this is of course not fool-proof, though it gives us a starting point; since most messages are not spam, if we'd just dump say 50k random messages there might be an unproportional amount of non-spam compared to spam, so we're dumping roughly 25k reported messages and 25k random messages.
+In our case we have a way for users to report messages as spam, so we have a separate dump for non-reported messages and reported messages. Since many users might have reported messages as spam that are actually not spam, this is of course not fool-proof, though it gives us a starting point; since most messages are not spam, if we'd just dump say 50k random messages there might be an unproportional amount of non-spam compared to spam, so we're dumping roughly 25k reported messages and 25k random messages.
 
 You could of course use more messages for the training data, though using around 50k messages as training data gave us a resonable accuracy of 99.98% after some tweaking. Training on this amount of data and doing cross-validation consumed roughly 30 GB of memory, so if you have both the time and memory you could increase the size of the training data, at the expense of more time spending trying to correctly label everything.
 
@@ -47,9 +44,9 @@ update training set class = 0;
 Likely there are some duplicate messages in the training data right now, both from non-spam (many users would send short messages such as 'hi' and 'how are you?') and spam (since spammers usually send the same message to multiple people). Though the accuracy of the classifier won't be affected much, having duplicates would increase the training time, so we might as well remove them:
 
 ```sql
-delete train1 from training train1, training train2 
-where 
-    train1.id > train2.id and 
+delete train1 from training train1, training train2
+where
+    train1.id > train2.id and
     train1.message = train2.message;
 ```
 
@@ -57,13 +54,13 @@ Secondly, in most spam messages we've seen, there are links they want others to 
 
 ```sql
 update training
-    set class = 1 
-where 
-    (message like '%.com %' or 
-    message like '%.net %' or 
-    message like '%.de %') and 
-    message not like '%your-domain.de %' and 
-    message not like '%your-other-domain.com%' and 
+    set class = 1
+where
+    (message like '%.com %' or
+    message like '%.net %' or
+    message like '%.de %') and
+    message not like '%your-domain.de %' and
+    message not like '%your-other-domain.com%' and
     message not like '%youtube.com%' and
     message not like '%facebook.com%' and
     class = 0;
@@ -74,9 +71,9 @@ Notice the space at the end of 'your-domain.de '; this is because our messages a
 Many of our spam messages contains obfuscated linkes, such as `F˔ u˔ n˔ s˔ i˔ t˔ e. c˔ o˔ m` and `F˖u˖n˖s˖i˖t˖e . n˖e˖t!`, to try to circumvent simple keyword matching. Funsite is one domain that often shows up in these ways in our messages (not the real domain, funsite is used here to not disclose the actual spam domain used). Using regular expressions we can find quite a lot of these messages easily:
 
 ```sql
-update training set class = 1 
-where 
-    message regexp 'F.{0,6}U.{0,6}N.{0,6}S.{0,6}I.{0,6}T.{0,6}E' 
+update training set class = 1
+where
+    message regexp 'F.{0,6}U.{0,6}N.{0,6}S.{0,6}I.{0,6}T.{0,6}E'
     and class = 0;
 ```
 
@@ -91,10 +88,10 @@ ALTER TABLE training ADD FULLTEXT index_name(message);
 Then find the most matching messages:
 
 ```sql
-select id, class, message, 
-    match (message) against("Melde dich bitte  zuerst hier= Fˈ uˈ nˈ sˈ iˈ tˈ e . nˈ eˈ t!!") as score 
-from training where 
-    match (message) against("Melde dich bitte  zuerst hier= Fˈ uˈ nˈ sˈ iˈ tˈ e . nˈ eˈ t!!") and 
+select id, class, message,
+    match (message) against("Melde dich bitte  zuerst hier= Fˈ uˈ nˈ sˈ iˈ tˈ e . nˈ eˈ t!!") as score
+from training where
+    match (message) against("Melde dich bitte  zuerst hier= Fˈ uˈ nˈ sˈ iˈ tˈ e . nˈ eˈ t!!") and
     class = 0
 limit 50;
 ```
@@ -105,24 +102,24 @@ Next, we have many spam links that ends in two digits, for example `funsite18.ne
 
 ```sql
 select count(*) from training
-where 
+where
     message regexp '[0-9]{2}.{0,5}[nN].{0,3}[neNE3].{0,3}[tT]';
 
-select count(*) from training 
-where 
+select count(*) from training
+where
     message regexp '[0-9]{2}.{0,5}[cC].{0,3}[oO0].{0,3}[mM]';
 ```
 
 Lastly, we can run the classifier on this and print all false positives. If you have most of your data labelled correctly, the classifier will most likely classify the messages you've missed to manually label as spam, while in the dataset they're still labelled as ham, giving you a list of false positives, of which most messages are likely to be messages you actually want to label as spam. For example during the evaluation phase:
 
 ```python
-# y_valid is the labels from the training set, y_pred is what the 
+# y_valid is the labels from the training set, y_pred is what the
 # classifier predicted (% probability of being spam)
 for index, (y_true, y_guess) in enumerate(zip(y_valid, y_pred)):
     # if the classifier is unsure likely it's not our spam messages
     if y_true == 0 and y_guess >= 0.7:
-        # printing the messages from a copy of the input matrix since 
-        # the one used for training contains the transformed messages 
+        # printing the messages from a copy of the input matrix since
+        # the one used for training contains the transformed messages
         # which are not human-readable
         print('[guess: %s, true: %s]' % (y_guess, y_true))
         print(X_valid_original[index].encode('utf-8').strip())
@@ -443,7 +440,7 @@ def load_config(env):
         try:
             config[key] = type(zk.get('%s/%s' % (zk_config_path, key))[0])
         except NoNodeError as e:
-            logger.error('could not get config key "%s" from zookeeper: %s' % 
+            logger.error('could not get config key "%s" from zookeeper: %s' %
                          (key, str(e)))
             raise e
 
@@ -498,7 +495,7 @@ def create_kafka_streams():
     kafka_partitions = config.get(ConfigKeys.KAFKA_PARTITIONS, 2)
     topic_name = config.get(ConfigKeys.TOPIC_NAME, 'chat-messages')
     return [
-        KafkaUtils.createStream(stream, zk_hosts, "spam-consumer", 
+        KafkaUtils.createStream(stream, zk_hosts, "spam-consumer",
                                 {topic_name: kafka_partitions})
         for _ in range (streaming_concurrency)
     ]
@@ -570,7 +567,7 @@ def download_models_from_hdfs(config):
 {:.note}
 > <h4>Reject Option</h4>
 > An upper threshold can be configured for when to notify the communities. In our case we've set it to 70%, so any message that has a probability of being spam that is lower than 70% will be dropped (i.e. assumed to not be spam). Basically this is similar to the idea of having a [reject option](http://www.jmlr.org/papers/volume9/bartlett08a/bartlett08a.pdf) in a classifier. A reject option is when a binary classifier classifier something close to 50%, meaning it's completely unsure of which class the input belongs to, so we might as well flip a coin. Instead of flipping a coin the classifier then rejects the input, either drops it completely or let some human look at it and decide and based on this decision add the input to the training data. All of a sudden we have basic reinforcement learning.
-> 
+>
 > In our case we save these rejected messages to a database (if the output is between 70% and 50%), which is rendered in the web interface to the classifier, so a human can look at it and decide whether or not these "possibly spam" messages are actually spam or not (more on this in the last part of this post). We have a quite high upper threshold for the reject option, since in spam classification you definitely don't want false positives (classifying a message as spam when it in fact wasn't), it's better for the users to sometimes let a real spam message through than to sometimes penalize users sending legitimate messages that happened to be classified as spam by the system. For recommendations this upper reject threshold could be much lower, since recommending something a users _might_ like isn't that bad.
 
 The `valid_json` method above only checks whether or not the incoming message is valid json or not and contains the expected attributes.
