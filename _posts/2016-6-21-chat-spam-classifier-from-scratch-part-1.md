@@ -1,9 +1,9 @@
 ---
 layout: post
-title: Chat Spam Classifier From Scratch - Part 1
+title: Chat Spam Classifier - Part 1 - Labelling Training Data
 ---
 
-I recently had the opportunity to solve an issue with spammers for our products. The products are community sites where users can send messages to each other. Many of these messages are from spammers, trying to make others visit websites or to get their emails. The previous solution was to maintain a list of blacklisted keywords. If a message contains one of these keywords, the user would get a warning. Three warnings in a shorter period of time results in a temporary ban. This solution has many drawbacks, since spammers can circumvent e.g. 'funsite.com' with 'f u n s i t e . c o m'. This has caused the list of keywords to grow and grow, year after year. Currently it contains over a thousand of these keywords. Checking against all keywords for every message sent is neither scalable nor accurate. We needed a better solution.
+I recently had the opportunity to solve an issue with spammers for our products. The products are community sites where users can send messages to each other. Many of these messages are from spammers, trying to make others visit websites or to get their emails. The previous solution was to maintain a list of blacklisted keywords. If a message contains one of these keywords, the user would get a warning. Three warnings in a shorter period of time results in a temporary ban. This solution has many drawbacks, since spammers can circumvent e.g. `funsite.com` with `f u n s i t e . c o m`. This has caused the list of keywords to grow and grow, year after year. Currently it contains over a thousand of these keywords. Checking against all keywords for every message sent is neither scalable nor accurate. We needed a better solution.
 
 The new solution is an asynchronous streaming classifier using [Apache Spark](http://spark.apache.org/) running on [Apache Hadoop](http://hadoop.apache.org/) using Yarn. Incoming messages comes from an [Apache Kafka](http://kafka.apache.org/) cluster. The models live in HDFS, and each Spark node downloads these at startup. After the models exist on local storage, each worker will load them into memory. The classifier's publishes predictions in near-real time on a queue for communities to consume. Finally the communities can decide what they want to do with the information given.
 
@@ -109,15 +109,15 @@ where
 Now we can run the classifier using this training data print all false positives. False positives means messages labelled as ham but classified as spam. Since we likely missed some spam messages, we want to find the false positives and update their label to ham. If you have most of your data labelled correct, the classifier will find what you've missed. For example during the evaluation phase:
 
 ```python
-# y_valid is the labels from the training set, y_pred is what the
+# y_true is the labels from the training set, y_hat is what the
 # classifier predicted (% probability of being spam)
-for index, (y_true, y_guess) in enumerate(zip(y_valid, y_pred)):
+for index, (yy_true, yy_hat) in enumerate(zip(y_true, y_hat)):
     # if the classifier is unsure likely it's not our spam messages
-    if y_true == 0 and y_guess >= 0.7:
+    if y_true == 0 and y_guess >= 0.5:
         # printing the messages from a copy of the input matrix since
         # the one used for training contains the transformed messages
         # which are not human-readable
-        print('[guess: %s, true: %s]' % (y_guess, y_true))
+        print('[guess: %s, true: %s]' % (yy_hat, yy_true))
         print(X_valid_original[index].encode('utf-8').strip())
 ```
 
