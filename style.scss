@@ -261,6 +261,11 @@ nav {
     font-style: italic;
   }
 
+  blockquote.note {
+    font-size: 80%;
+
+  }
+
   .comments {
     margin-top: 10px;
   }
@@ -281,6 +286,10 @@ nav {
 footer {
   padding: 20px 0;
   text-align: center;
+}
+
+code {
+  font-size: 70%;
 }
 
 // Settled on moving the import of syntax highlighting to the bottom of the CSS
