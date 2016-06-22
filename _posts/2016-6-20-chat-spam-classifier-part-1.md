@@ -1,6 +1,9 @@
 ---
 layout: post
 title: Chat Spam Classifier - Part 1 - Labelling Training Data
+tags:
+- spam
+- cleaning
 ---
 
 I recently had the opportunity to solve an issue with spammers for our products. The products are community sites where users can send messages to each other. Many of these messages are from spammers, trying to make others visit websites or to get their emails. The previous solution was to maintain a list of blacklisted keywords. If a message contains one of these keywords, the user would get a warning. Three warnings in a shorter period of time results in a temporary ban. This solution has many drawbacks, since spammers can circumvent e.g. `funsite.com` with `f u n s i t e . c o m`. This has caused the list of keywords to grow and grow, year after year. Currently it contains over a thousand of these keywords. Checking against all keywords for every message sent is neither scalable nor accurate. We needed a better solution.
