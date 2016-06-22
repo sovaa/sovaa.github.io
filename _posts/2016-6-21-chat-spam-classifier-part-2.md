@@ -3,6 +3,13 @@ layout: post
 title: Chat Spam Classifier - Part 2 - The Classifier
 ---
 
+This is the second part of a series on spam classification.
+
+* [Part 1: Labelling Training Data](//sovaa.github.io/chat-spam-classifier-part-1/)
+* Part 2: The Classifier
+* Part 3: Streaming Classification (TODO)
+* Part 4: Visualization (TODO)
+
 The classifier is an [ensemble of many classifiers](https://en.wikipedia.org/wiki/Ensemble_learning), who's output is the input to a single [blender](http://www.chioka.in/stacking-blending-and-stacked-generalization/). Blending is also called `stacking` of `stacked generalization` in some literature. The blender is a simple logistic regression algorithm that will form the final prediction. Most algorithms used comes from [Scikit-learn](http://scikit-learn.org/stable/), but [TensorFlow](https://www.tensorflow.org/) and [XGBoost](https://github.com/dmlc/xgboost) are also used.
 
 First we need to preprocess the data to get numerical values we can operate on. Here we're using a short pipeline consisting of a [stemmer](https://en.wikipedia.org/wiki/Stemming), [TF-IDF](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) [vectorizer](https://en.wikipedia.org/wiki/Vector_space_model) and a dense transformer. Since some of the classifiers don't work on [sparse data](https://en.wikipedia.org/wiki/Sparse_matrix) we want dense data:

@@ -6,13 +6,18 @@ tags:
 - cleaning
 ---
 
+The first part of this series talks about how to label a large amount of raw messages as either spam or ham. This labelled data is then used as training data for the classifier which will be described in part two. The third part will deal with how to run the streaming classifier in a production environment. Finally, the fourth part will talk about how to visualize and test the classifier.
+
+* Part 1: Labelling Training Data
+* [Part 2: The Classifier](http://sovaa.github.io/chat-spam-classifier-part-2/)
+* Part 3: Streaming Classification (TODO)
+* Part 4: Visualization (TODO)
+
 I recently had the opportunity to solve an issue with spammers for our products. The products are community sites where users can send messages to each other. Many of these messages are from spammers, trying to make others visit websites or to get their emails. The previous solution was to maintain a list of blacklisted keywords. If a message contains one of these keywords, the user would get a warning. Three warnings in a shorter period of time results in a temporary ban. This solution has many drawbacks, since spammers can circumvent e.g. `funsite.com` with `f u n s i t e . c o m`. This has caused the list of keywords to grow and grow, year after year. Currently it contains over a thousand of these keywords. Checking against all keywords for every message sent is neither scalable nor accurate. We needed a better solution.
 
 The new solution is an asynchronous streaming classifier using [Apache Spark](http://spark.apache.org/) running on [Apache Hadoop](http://hadoop.apache.org/) using Yarn. Incoming messages comes from an [Apache Kafka](http://kafka.apache.org/) cluster. The models live in HDFS, and each Spark node downloads these at startup. After the models exist on local storage, each worker will load them into memory. The classifier's publishes predictions in near-real time on a queue for communities to consume. Finally the communities can decide what they want to do with the information given.
 
 ![architecture](/images/spam-hdfs.png)
-
-The first part of this post talks about how to label a large amount of raw messages as either spam or ham. This labelled data is then used as training data for the classifier which will be described in part two. The third part will deal with how to run the classifier in a production environment. Finally, the fourth part will talk about how to visualize and test the classifier.
 
 ## Labelling training data
 
